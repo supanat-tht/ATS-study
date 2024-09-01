@@ -1,0 +1,134 @@
+---
+title: "forest plot"
+author: "Supanat Thitipatarakorn"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Forest plot
+
+```{r}
+library(dplyr)
+library(forestplot)
+library(grid)
+```
+
+```{r}
+# data
+base_data <- tibble::tibble(mean  = c(0.28, 0.60, 0.82, 1.00, 1.00, 2.18, 2.96, 3.63),
+                            lower = c(0.09, 0.27, 0.39, 1.00, 1.00, 0.75, 1.09, 1.38),
+                            upper = c(0.73, 1.29, 1.67, 1.00, 1.00, 7.09, 9.33, 11.16),
+                            algorithm = c("Cytology", "HRHPV", "Cytology+HRHPV", "HRA", "Cytology", "HRHPV", "Cytology+HRHPV", "HRA"),
+                            hsil_n = c("6/237", "13/243", "17/238", "21/244", "6/237", "13/243", "17/238", "21/244"),
+                            hsil_percent = c("2.53%", "5.35%", "7.14%", "8.61%", "2.53%", "5.35%", "7.14%", "8.61%"),
+                            OR = c("0.28 (0.09-0.73)", "0.60 (0.27-1.29)", "0.82 (0.39-1.67)", "Ref", "Ref", "2.18 (0.75-7.09)", "2.96 (1.09-9.33)", "3.63 (1.38-11.16)"),
+                            ref = c("HRA", "HRA", "HRA", "HRA", "Cytology", "Cytology", "Cytology", "Cytology"))
+
+
+
+# Forest plot 1 (vs HRA)
+fp_vsHRA <- base_data |>
+  filter(ref == "HRA") |>
+  forestplot(labeltext = c(algorithm, hsil_n, hsil_percent, OR),
+             mean = mean, lower = lower, upper = upper,
+             title = "Strategy vs HRA",
+             xlab = "Odds Ratio (OR)",
+             clip = c(0.20, 4),
+             zero = 1,
+             vertices = TRUE
+  ) |> 
+  fp_add_header(algorithm = c("", "Algorithm"),
+                hsil_n = c("HSIL", "detected") |> 
+                  fp_align_center(),
+                hsil_percent = c("% HSIL", "detected") |> 
+                  fp_align_center(),
+                OR = c("OR", "(95% CI)") |> 
+                  fp_align_center()) |>
+  fp_set_style(box = "royalblue",
+               line = "darkblue",
+               summary = "royalblue")
+fp_vsHRA
+
+# Forest plot 2 (vs Cytology)
+fp_vsCyto <- base_data |>
+  filter(ref == "Cytology") |>
+  forestplot(labeltext = c(OR),
+             mean = mean, lower = lower, upper = upper,
+             title = "Strategy vs HRA",
+             xlab = "Odds Ratio (OR)",
+             clip = c(0.20, 4),
+             zero = 1,
+             vertices = TRUE
+  ) |> 
+  fp_add_header(OR = c("OR", "(95% CI)") |> 
+                  fp_align_center()) |>
+  fp_set_style(box = "royalblue",
+               line = "darkblue",
+               summary = "royalblue")
+fp_vsCyto
+```
+
+
+```{r}
+# remove some columns to get larger plots
+
+# initialize plot
+png("forestplot_vsHRA.png", width = 7,height = 5,units = 'in',res = 300)
+
+# Forest plot 1 (vs HRA)
+fp_vsHRA <- base_data |>
+  filter(ref == "HRA") |>
+  forestplot(labeltext = c(algorithm, hsil_n),
+             mean = mean, lower = lower, upper = upper,
+             title = "Strategy vs HRA",
+             xlab = "Odds Ratio (OR)",
+             clip = c(0.20, 4),
+             xlim = c(0.20, 4),
+             zero = 1,
+             vertices = TRUE
+  ) |> 
+  fp_add_header(algorithm = c("", "Algorithm"),
+                hsil_n = c("HSIL", "detected") |> 
+                  fp_align_center()) |> 
+  fp_set_style(box = "royalblue",
+               line = "darkblue",
+               summary = "royalblue")
+fp_vsHRA
+
+# save plot
+dev.copy(png, "forestplot_vsHRA.png")
+dev.off()
+```
+
+```{r}
+# initialize plot
+png("forestplot_vsCyto.png", width = 7,height = 5,units = 'in',res = 300)
+
+# Forest plot 2 (vs Cytology)
+fp_vsCyto <- base_data |>
+  filter(ref == "Cytology") |>
+  forestplot(labeltext = c(algorithm, hsil_n),
+             mean = mean, lower = lower, upper = upper,
+             title = "Strategy vs cytology alone",
+             xlab = "Odds Ratio (OR)",
+             clip = c(0.20, 4),
+             xlim = c(0.20, 4),
+             zero = 1,
+             vertices = TRUE
+  ) |> 
+  fp_add_header(algorithm = c("", "Algorithm"),
+                hsil_n = c("HSIL", "detected") |> 
+                  fp_align_center()) |> 
+  fp_set_style(box = "royalblue",
+               line = "darkblue",
+               summary = "royalblue")
+fp_vsCyto
+
+# save plot
+dev.copy(png, "forestplot_vsCyto.png")
+dev.off()
+```

@@ -1,0 +1,410 @@
+---
+title: "ATS Study"
+author: "Supanat Thitipatarakorn"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is baseline (Phase 1) data from the ATS study including only MSM and excluding all TGW and 1 MSM who did not complete baseline questionnaire.
+
+```{r}
+# Install packages
+library("dplyr")
+library("forcats")
+library("gtsummary")
+library(nnet)
+library(car)
+```
+
+## Data Exploration
+
+```{r include=FALSE}
+# Read in the data
+df <- read.csv("data_ATS_stageI_26082024.csv", na.string = "")
+
+# dimension of the data frame
+dim(df) # There are 1394 observations and 141 variables in the main file
+
+# check duplicate
+n_distinct(df$patientid) # no duplicated patient IDs
+
+# column names
+colnames(df)
+
+# filter out unused patient IDs
+df2 <- df %>%
+  filter(ats_6m != "[2]Skip/prefer not to answer") # exclude 19 participants who did not answer questions about ATS, so 1375 participants left
+
+# fill missing values
+df3 <- df2 %>%
+   mutate(income_4gr_fill = case_when(
+     income_2gr == "[0]No income" ~ "[1]<=15,000", #group no income into the ≤15,000 group
+     .default = as.character(income_4gr)),
+     current_smoker = case_when(
+       is.na(q28_1) ~ q28,
+       .default = as.character(q28_1)
+     ),
+     income_4gr_fill = fct_na_value_to_level(income_4gr, level = "Unknown"),
+     syphilis_6m_crf_fill = fct_na_value_to_level(syphilis_6m_crf, level = "No"),
+     gonorrhea_6m_crf_fill = fct_na_value_to_level(gonorrhea_6m_crf, level = "No"),
+     ct_6m_crf_fill = fct_na_value_to_level(ct_6m_crf, level = "No"),
+     any_bact_sti = case_when(
+       syphilis_6m_crf == "[1]Syphilis" ~ "Yes",
+       gonorrhea_6m_crf == "[1]Gonorrhea" ~ "Yes",
+       ct_6m_crf == "[1]Chlamydia" ~ "Yes",
+       .default = "No"
+     )) 
+
+# mutate other variables
+df4 <- df3 %>%
+  mutate(antihiv_noincon = ifelse(antihiv == "[3]Inconclusive", NA, antihiv), # hide anti-HIV inconclusive
+         lifetime_partners = cut(q11, breaks = c(1, 2, 6, 11, Inf), include.lowest = TRUE, right = FALSE), # number of lifetime partners
+         lifetime_partners_2gr = cut(q11, breaks = c(1, 6, Inf), include.lowest = TRUE, right = FALSE),
+         income_15000 = case_when(
+           income_4gr_fill == "[1]<=15,000" ~ "<=15,000",
+           income_4gr_fill == "[2]15,001-20,000" ~ ">15,000",
+           income_4gr_fill == "[3]20,001-30,000" ~ ">15,000",
+           income_4gr_fill == "[4]>30000" ~ ">15,000"
+         ),
+         income_30000 = case_when(
+           income_4gr_fill == "[1]<=15,000" ~ "<=30,000",
+           income_4gr_fill == "[2]15,001-20,000" ~ "<=30,000",
+           income_4gr_fill == "[3]20,001-30,000" ~ "<=30,000",
+           income_4gr_fill == "[4]>30000" ~ ">30,000"
+         ),
+         education = case_when(
+           q1 == "[1]Primary School" ~ "Lower than university",
+           q1 == "[2]Secondary School" ~ "Lower than university",
+           q1 == "[3]Technical School or Diploma" ~ "Lower than university",
+           q1 == "[4]University or higher" ~ "University or higher",
+           q1 == "[6]Skip/prefer not to say" ~ NA
+         ),
+         q27 = as.factor(q27)
+         )
+
+# save to final DF
+df_final <- df4
+```
+
+`q1` = education
+`q11` = No. of lifetime sex partners
+`q23` = group sex
+`q27` = current PrEP user
+`q29_2gr` = alcohol
+`q29_auditc`= alcohol AUDIT-C
+
+## Summary table
+```{r summary_table}
+# summary table
+df_tbl_summary <- df_final %>%
+    select(ats_6m_2gr, age, age_4gr, status_crf, income_4gr_fill, income_15000, income_30000, education, syphilis_6m_crf_fill, gonorrhea_6m_crf_fill, ct_6m_crf_fill, any_bact_sti, antihiv, antihiv_noincon, q1, lifetime_partners, lifetime_partners_2gr, q23, q27, current_smoker, q29_2gr, q29_auditc, ptsd_2gr, hads_depress_3gr, hads_anxiety_3gr) %>%      # select variable of interest 
+  mutate(income_4gr_fill = factor(income_4gr_fill) %>% forcats::fct_explicit_na(),
+         lifetime_partners = factor(lifetime_partners) %>% forcats::fct_explicit_na(),
+         lifetime_partners_2gr = factor(lifetime_partners_2gr) %>% forcats::fct_explicit_na(),
+         q23 = factor(q23) %>% forcats::fct_explicit_na(),
+         q27 = factor(q27) %>% forcats::fct_explicit_na(),
+         current_smoker = factor(current_smoker) %>% forcats::fct_explicit_na(),
+         q29_2gr = factor(q29_2gr) %>% forcats::fct_explicit_na(),
+         q29_auditc = factor(q29_auditc) %>% forcats::fct_explicit_na(),
+         income_15000 = factor(income_15000) %>% forcats::fct_explicit_na(),
+         income_30000 = factor(income_30000) %>% forcats::fct_explicit_na(),
+         education = factor(education) %>% forcats::fct_explicit_na(),
+         ptsd_2gr = factor(ptsd_2gr) %>% forcats::fct_explicit_na(),
+         hads_depress_3gr = factor(hads_depress_3gr) %>% forcats::fct_explicit_na(),
+         hads_anxiety_3gr = factor(hads_anxiety_3gr) %>% forcats::fct_explicit_na()
+         )
+
+# by = hads_depress_3gr
+df_tbl_summary %>% tbl_summary(                                                
+        statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                              "{median} ({p25} to {p75})", 
+                                              "{min} to {max}"),        # stats and format for continuous variables
+                         all_categorical() ~ "{n} ({p}%)"),          # stats and format for categorical variables
+        type = list(age ~ "continuous2",
+                    all_dichotomous() ~ "categorical"),             # force show all levels
+        digits = list(all_continuous() ~ 1,                         # rounding for continuous columns
+                      all_categorical() ~ c(0,1)),                       # rounding for categorical columns
+        label = list(age ~ "Age (years)",
+                     age_4gr ~ "Age (years)"),
+        by = hads_depress_3gr,
+        missing = "ifany",
+        percent = "row"
+    ) %>%
+  add_n %>% 
+  # add_p(pvalue_fun = ~style_pvalue(.x, digits = 3)) %>% 
+  add_overall() %>%
+  modify_caption("**HADS-D**")
+
+# by = hads_anxiety_3gr
+df_tbl_summary %>% tbl_summary(                                                
+        statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                              "{median} ({p25} to {p75})", 
+                                              "{min} to {max}"),        # stats and format for continuous variables
+                         all_categorical() ~ "{n} ({p}%)"),          # stats and format for categorical variables
+        type = list(age ~ "continuous2",
+                    all_dichotomous() ~ "categorical"),             # force show all levels
+        digits = list(all_continuous() ~ 1,                         # rounding for continuous columns
+                      all_categorical() ~ c(0,1)),                       # rounding for categorical columns
+        label = list(age ~ "Age (years)",
+                     age_4gr ~ "Age (years)"),
+        by = hads_anxiety_3gr,
+        missing = "ifany",
+        percent = "row"
+    ) %>%
+  add_n %>%
+  add_overall() %>%
+  modify_caption("**HADS-A**")
+
+# by = ptsd_2gr
+df_tbl_summary %>% tbl_summary(                                                
+        statistic = list(all_continuous() ~ c("{N_nonmiss}",
+                                              "{median} ({p25} to {p75})", 
+                                              "{min} to {max}"),        # stats and format for continuous variables
+                         all_categorical() ~ "{n} ({p}%)"),          # stats and format for categorical variables
+        type = list(age ~ "continuous2",
+                    all_dichotomous() ~ "categorical"),             # force show all levels
+        digits = list(all_continuous() ~ 1,                         # rounding for continuous columns
+                      all_categorical() ~ c(0,1)),                       # rounding for categorical columns
+        label = list(age ~ "Age (years)",
+                     age_4gr ~ "Age (years)"),
+        by = ptsd_2gr,
+        missing = "ifany",
+        percent = "row"
+    ) %>%
+  add_n %>%
+  add_overall() %>%
+  modify_caption("**PTSD**")
+
+```
+
+---
+
+## Multinomial logistic regression model
+## HADS-D as an outcome
+### Univariate
+```{r}
+# select variables for the models
+df_model <- df_final %>%
+  select(ats_6m_2gr, age_4gr, income_15000, income_30000, education, any_bact_sti, antihiv_noincon, q23, q27, current_smoker, q29_2gr, q29_auditc, ptsd_2gr, hads_anxiety_3gr, hads_depress_3gr) %>%
+  mutate(ptsd_abnormal = case_when(
+    ptsd_2gr == "[0]Normal score 0-2" ~ 0,
+    ptsd_2gr == "[1]Abnormal score 3-4" ~ 1
+  )) %>%
+  select(-ptsd_2gr)
+
+# univariate models
+univariate_hasd_d <- df_model %>%
+    tbl_uvregression(
+        method = multinom,
+        y = hads_depress_3gr,
+        method.args = list(family = binomial(link = "logit")),
+        exponentiate = TRUE,
+        pvalue_fun = ~style_pvalue(.x, digits = 3)
+    ) %>%
+  bold_p()
+univariate_hasd_d
+```
+
+### Multivariate
+
+Include variables with p<0.05 from univariate analysis in the multivariate model.
+
+```{r}
+# multivariate model 1
+m_hasd_d_1 <- multinom(hads_depress_3gr ~ ats_6m_2gr + income_15000 + current_smoker + ptsd_abnormal + hads_anxiety_3gr + q29_auditc, family = binomial(link = "logit"), data = df_model)
+
+m_hasd_d_1 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+  ) %>% 
+  bold_labels() %>%
+  bold_p() %>%
+  add_glance_source_note(
+    include = c(AIC)
+  )
+```
+
+```{r}
+# Calculate GVIF separately for 2 logistic regression models because GVIF isn't designed for the multinomial model from nnet.
+df_model_vif <- df_model %>%
+  mutate(hads_depress_borderline = case_when(
+    hads_depress_3gr == "[0]Normal score 0-7" ~ 0,
+    hads_depress_3gr == "[1]Borderline score 8-10" ~ 1,
+    hads_depress_3gr == "[2]Abnormal score 11-21" ~ NA
+  ),
+  hads_depress_abnormal = case_when(
+    hads_depress_3gr == "[0]Normal score 0-7" ~ 0,
+    hads_depress_3gr == "[1]Borderline score 8-10" ~ NA,
+    hads_depress_3gr == "[2]Abnormal score 11-21" ~ 1
+  ))
+
+vif(glm(hads_depress_borderline ~ income_15000 + current_smoker + ptsd_abnormal + hads_anxiety_3gr + q29_auditc, data=df_model_vif,family="binomial"))
+vif(glm(hads_depress_abnormal ~ income_15000 + current_smoker + ptsd_abnormal + hads_anxiety_3gr + q29_auditc, data=df_model_vif,family="binomial"))
+# The high adjusted GVIF values (similar to VIF) i.e. > 2 indicate the presence of moderate to strong multicollinearity. 
+# None of the adjusted GVIF is > 2 in these models.
+```
+
+Remove variables with p>0.05 from model 1
+
+```{r}
+# multivariate model 2 (including varoables with p<0.05 from model 1)
+m_hasd_d_2 <- multinom(hads_depress_3gr ~ ats_6m_2gr + income_15000 + current_smoker + ptsd_abnormal + hads_anxiety_3gr, family = binomial(link = "logit"), data = df_model)
+
+m_hasd_d_2 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+  ) %>% 
+  bold_labels() %>%
+  bold_p() %>%
+  add_glance_source_note(
+    include = c(AIC)
+  )
+```
+
+The AIC became higher, so model 1 is preferred.
+
+---
+
+## HADS-A as an outcome
+### Univariate
+```{r}
+# univariate models
+univariate_hasd_a <- df_model %>%
+    tbl_uvregression(
+        method = multinom,
+        y = hads_anxiety_3gr,
+        method.args = list(family = binomial(link = "logit")),
+        exponentiate = TRUE,
+        pvalue_fun = ~style_pvalue(.x, digits = 3)
+    ) %>%
+  bold_p()
+univariate_hasd_a
+```
+
+### Multivariate
+```{r}
+# model 1
+m_hasd_a_1 <- multinom(hads_anxiety_3gr ~ ats_6m_2gr + age_4gr + income_15000 + education + antihiv_noincon + current_smoker + ptsd_abnormal + hads_depress_3gr, family = binomial(link = "logit"), data = df_model)
+# can't include q27 (PrEP user) in the model because of a single-level issue.
+
+m_hasd_a_1 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+  ) %>% 
+  bold_labels() %>%
+  bold_p() %>%
+  add_glance_source_note(
+    include = c(AIC)
+  )
+```
+
+```{r}
+# Calculate GVIF separately for 2 logistic regression models because GVIF isn't designed for the multinomial model from nnet.
+df_model_vif <- df_model %>%
+    mutate(hads_anxiety_borderline = case_when(
+        hads_anxiety_3gr == "[0]Normal score 0-7" ~ 0,
+        hads_anxiety_3gr == "[1]Borderline score 8-10" ~ 1,
+        hads_anxiety_3gr == "[2]Abnormal score 11-21" ~ NA
+    ),
+    hads_anxiety_abnormal = case_when(
+        hads_anxiety_3gr == "[0]Normal score 0-7" ~ 0,
+        hads_anxiety_3gr == "[1]Borderline score 8-10" ~ NA,
+        hads_anxiety_3gr == "[2]Abnormal score 11-21" ~ 1
+    ))
+
+vif(glm(hads_anxiety_borderline ~ ats_6m_2gr + age_4gr + income_15000 + education + antihiv_noincon + current_smoker + ptsd_abnormal + hads_depress_3gr, data=df_model_vif,family="binomial"))
+vif(glm(hads_anxiety_abnormal ~ ats_6m_2gr + age_4gr + income_15000 + education + antihiv_noincon + current_smoker + ptsd_abnormal + hads_depress_3gr, data=df_model_vif,family="binomial"))
+# The high adjusted GVIF values (similar to VIF) i.e. > 2 indicate the presence of moderate to strong multicollinearity. 
+# None of the adjusted GVIF is > 2 in these models.
+```
+Next, include only variables with p <0.05 from model 1 into model 2.
+
+```{r}
+# model 2
+m_hasd_a_2 <- multinom(hads_anxiety_3gr ~ ats_6m_2gr + age_4gr + income_15000 + antihiv_noincon + ptsd_abnormal + hads_depress_3gr, family = binomial(link = "logit"), data = df_model)
+
+m_hasd_a_2 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+  ) %>% 
+  bold_labels() %>%
+  bold_p() %>%
+  add_glance_source_note(
+    include = c(AIC)
+  )
+```
+
+The AIC of model 2 is larger than that of model 1, so model 1 is preferred.
+
+---
+
+## PTSD as an outcome
+### Univariate
+```{r}
+# univariate models
+univariate_ptsd <- df_model %>%
+    tbl_uvregression(
+        method = glm,
+        y = ptsd_abnormal,
+        method.args = list(family = binomial(link = "logit")),
+        exponentiate = TRUE,
+        pvalue_fun = ~style_pvalue(.x, digits = 3)
+    ) %>%
+  bold_labels() %>%
+  bold_p()
+univariate_ptsd
+```
+
+### Multivariate
+
+Model 1: include variables with p<0.05 from univariate analysis.
+
+```{r}
+# model 1
+m_ptsd_1 <- glm(ptsd_abnormal ~ ats_6m_2gr + education + q27 + current_smoker + q29_auditc + hads_anxiety_3gr + hads_depress_3gr, family = binomial(link = "logit"), data = df_model)
+
+multivariate_ptsd_1 <- m_ptsd_1 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+  ) %>% 
+  bold_labels() %>%
+  bold_p() %>%
+  add_glance_table(
+    include = c(AIC)
+  )
+
+# model 2 (selecting variables with p<0.05 from model 1)
+m_ptsd_2 <- glm(ptsd_abnormal ~ ats_6m_2gr + q29_auditc + hads_anxiety_3gr + hads_depress_3gr, family = binomial(link = "logit"), data = df_model)
+
+multivariate_ptsd_2 <- m_ptsd_2 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+  ) %>% 
+  bold_labels() %>%
+  bold_p() %>%
+  add_glance_table(
+    include = c(AIC)
+  )
+
+tbl_merge(list(univariate_ptsd, multivariate_ptsd_1, multivariate_ptsd_2),
+          tab_spanner = c("**Univariable**", "**Multivariable 1**", "**Multivariable 2**"))
+
+# VIF
+vif(m_ptsd_1)
+# The high adjusted GVIF values (similar to VIF) i.e. > 2 indicate the presence of moderate to strong multicollinearity. 
+# None of the adjusted GVIF is > 2 in this model.
+```
+
+The larger model (model 1) has a smaller AIC value. Hence, model 1 is preferred.
